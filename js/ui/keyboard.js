@@ -323,31 +323,79 @@ export class SynthKeyboard {
       });
     }
 
-    // Mod strip
+    // Performance Modulation Strip (Mod Wheel for Filter Cutoff / Brightness)
     const modStrip = document.getElementById("modStrip");
     const modThumb = document.getElementById("modStripThumb");
-    if (modStrip && modThumb) {
-      const handleMod = (clientY) => {
-        const rect = modStrip.getBoundingClientRect();
-        const norm = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
-        modThumb.style.transform = `translateY(${Math.round((1 - norm) * 60)}px)`;
+    const modFill = document.getElementById("modStripFill");
 
-        // Modulate Cutoff
-        const baseCutoff = this.engine.currentPatch.filter?.cutoff || 4000;
-        const modCutoff = baseCutoff * (0.3 + norm * 2.5);
+    if (modStrip && modThumb) {
+      let isDragging = false;
+      const thumbHeight = 20;
+      const topPadding = 4;
+      const bottomPadding = 4;
+
+      this.updateModWheel = (norm) => {
+        norm = Math.max(0, Math.min(1, norm));
+        const rect = modStrip.getBoundingClientRect();
+        const height = rect.height > 0 ? rect.height : 96;
+        const maxTravel = height - thumbHeight - topPadding - bottomPadding;
+        const currentY = Math.round((1 - norm) * maxTravel);
+
+        modThumb.style.transform = `translateY(${currentY}px)`;
+        if (modFill) {
+          modFill.style.height = `${Math.round(norm * 100)}%`;
+        }
+
+        // Modulate Filter Cutoff (musically sweeping from warm/deep to wide-open harmonic brilliance)
+        const baseCutoff = this.engine.currentPatch?.filter?.cutoff || 3500;
+        const modCutoff = Math.min(20000, Math.max(60, baseCutoff * Math.pow(2.2, (norm - 0.5) * 3.5)));
         this.engine.effects.setFilterParam("cutoff", modCutoff);
       };
 
-      modStrip.addEventListener("mousedown", (e) => {
-        const onMove = (me) => handleMod(me.clientY);
-        const onUp = () => {
-          window.removeEventListener("mousemove", onMove);
-          window.removeEventListener("mouseup", onUp);
-        };
-        window.addEventListener("mousemove", onMove);
-        window.addEventListener("mouseup", onUp);
-        handleMod(e.clientY);
+      const handlePointer = (e) => {
+        const rect = modStrip.getBoundingClientRect();
+        const maxTravel = rect.height - thumbHeight - topPadding - bottomPadding;
+        if (maxTravel <= 0) return;
+
+        const rawOffset = e.clientY - rect.top - topPadding - (thumbHeight / 2);
+        const clampedOffset = Math.max(0, Math.min(maxTravel, rawOffset));
+        const norm = 1 - (clampedOffset / maxTravel);
+        this.updateModWheel(norm);
+      };
+
+      modStrip.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        this.engine.resume();
+        isDragging = true;
+        try {
+          modStrip.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        handlePointer(e);
       });
+
+      modStrip.addEventListener("pointermove", (e) => {
+        if (!isDragging) return;
+        handlePointer(e);
+      });
+
+      const stopDrag = (e) => {
+        if (!isDragging) return;
+        isDragging = false;
+        try {
+          modStrip.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+      };
+
+      modStrip.addEventListener("pointerup", stopDrag);
+      modStrip.addEventListener("pointercancel", stopDrag);
+
+      // Double-click resets to neutral middle
+      modStrip.addEventListener("dblclick", () => {
+        this.updateModWheel(0.5);
+      });
+
+      // Initialize at neutral position
+      setTimeout(() => this.updateModWheel(0.5), 60);
     }
   }
 
@@ -516,6 +564,9 @@ export class SynthKeyboard {
           op.osc.detune.setValueAtTime(norm * 200, this.engine.ctx.currentTime);
         }
       }
+    } else if (cmd === 11 && note === 1) {
+      // CC 1: Hardware Modulation Wheel
+      this.updateModWheel?.(velocity / 127);
     }
   }
 

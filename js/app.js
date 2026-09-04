@@ -135,6 +135,13 @@ class NeuSynthApp {
         }
         this.keyboard?.updateRecCursor();
       }
+      const modParam = urlParams.get("mod");
+      if (modParam !== null) {
+        const modVal = parseFloat(modParam);
+        if (!isNaN(modVal)) {
+          setTimeout(() => this.keyboard?.updateModWheel(modVal), 100);
+        }
+      }
     }
   }
 
